@@ -1,0 +1,784 @@
+local WindUI = loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"
+))()
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+local LocalPlayer = Players.LocalPlayer
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+
+local Window = WindUI:CreateWindow({
+    Title = "Henrique",
+    Icon = "swords",
+    IconThemed = true,
+    IconSize = 24,
+    Folder = "Henrique",
+    Size = UDim2.new(0, 700, 0, 500),
+    Transparent = false,
+    SideBarWidth = 180,
+    User = {
+        Enabled = false,
+    },
+})
+
+WindUI:SetTheme("Dark")
+
+local MainTab = Window:Tab({
+    Title = "Main",
+    Icon = "swords",
+    IconThemed = true,
+})
+
+local PlayerTab = Window:Tab({
+    Title = "Player",
+    Icon = "user",
+    IconThemed = true,
+})
+
+local VisualTab = Window:Tab({
+    Title = "Visual",
+    Icon = "eye",
+    IconThemed = true,
+})
+
+local MobsFolder = Workspace:WaitForChild("Mobs")
+local KillAuraEnabled = false
+local Range = 30
+local AttackCooldown = 0.2
+local LastAttack = 0
+
+local SwordNames = {
+    "A Very Old Sword",
+    "Blackword",
+    "Broken Greatsword",
+    "Bronze Greatsword",
+    "Bronze Sword",
+    "Buster Sword",
+    "Chromatic Greatsword",
+    "Demetal Sword",
+    "Executioner's Greatsword",
+    "Gilded Greatsword",
+    "Iron Greatsword",
+    "Iron Sword",
+    "Mithril Sword",
+    "Old Sword",
+    "Owl's Straight Sword",
+    "Oxide Longsword",
+    "Scrap Longsword",
+    "Swordfish",
+}
+
+local cachedNilRemote = nil
+local lastNilCache = 0
+local NilCacheInterval = 2
+
+local function getCachedNilRemote()
+    local now = tick()
+    if now - lastNilCache < NilCacheInterval and cachedNilRemote then
+        return cachedNilRemote
+    end
+    lastNilCache = now
+    for _, v in next, getnilinstances() do
+        if v.ClassName == "RemoteEvent" and v.Name == "RemoteEvent" then
+            cachedNilRemote = v
+            return v
+        end
+    end
+    cachedNilRemote = nil
+    return nil
+end
+
+local cachedMobs = {}
+local lastCacheUpdate = 0
+local CacheInterval = 1
+
+local function updateMobCache()
+    local now = tick()
+    if now - lastCacheUpdate < CacheInterval then return end
+    lastCacheUpdate = now
+
+    local newCache = {}
+    for _, zoneFolder in ipairs(MobsFolder:GetChildren()) do
+        if zoneFolder:IsA("Folder") or zoneFolder:IsA("Model") then
+            for _, mob in ipairs(zoneFolder:GetChildren()) do
+                if mob:IsA("Model") then
+                    local humanoid = mob:FindFirstChildOfClass("Humanoid")
+                    if humanoid and humanoid.Health > 0 then
+                        table.insert(newCache, mob)
+                    end
+                end
+            end
+        end
+    end
+    cachedMobs = newCache
+end
+
+MobsFolder.DescendantAdded:Connect(function(desc)
+    if desc:IsA("Model") and desc:FindFirstChildOfClass("Humanoid") then
+        lastCacheUpdate = 0
+    end
+end)
+
+MobsFolder.DescendantRemoving:Connect(function(desc)
+    if desc:IsA("Model") then
+        lastCacheUpdate = 0
+    end
+end)
+
+local function getCharacter()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+    return char, hrp
+end
+
+local function getClosestMob()
+    local char, hrp = getCharacter()
+    if not hrp then return nil end
+
+    local closest = nil
+    local minDist = Range
+    local myPos = hrp.Position
+
+    for _, mob in ipairs(cachedMobs) do
+        if mob.Parent then
+            local mobHRP = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Torso") or mob:FindFirstChild("UpperTorso")
+            if mobHRP then
+                local dist = (myPos - mobHRP.Position).Magnitude
+                if dist < minDist then
+                    minDist = dist
+                    closest = mob
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function getEquippedSword()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    for _, name in ipairs(SwordNames) do
+        local sword = char:FindFirstChild(name)
+        if sword then
+            return sword
+        end
+    end
+    return nil
+end
+
+local function attack()
+    local args = {1}
+    local sword = getEquippedSword()
+    if sword then
+        local slash = sword:FindFirstChild("Slash")
+        if slash then
+            slash:FireServer(unpack(args))
+        end
+    end
+    local nilRemote = getCachedNilRemote()
+    if nilRemote then
+        nilRemote:FireServer(unpack(args))
+    end
+end
+
+RunService.Heartbeat:Connect(function()
+    if not KillAuraEnabled then return end
+
+    local now = tick()
+    if now - LastAttack < AttackCooldown then return end
+
+    local char, hrp = getCharacter()
+    if not hrp then return end
+
+    updateMobCache()
+
+    local target = getClosestMob()
+    if target then
+        LastAttack = now
+        attack()
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    char:WaitForChild("HumanoidRootPart")
+end)
+
+MainTab:Toggle({
+    Title = "Auto Attack",
+    Desc = "Automatically attacks nearby mobs within range",
+    Icon = "swords",
+    IconThemed = true,
+    Value = false,
+    Callback = function(Value)
+        KillAuraEnabled = Value
+    end,
+})
+
+MainTab:Slider({
+    Title = "Attack detect",
+    Desc = "Maximum detect to attack mobs",
+    Icon = "crosshair",
+    IconThemed = true,
+    Value = {
+        Min = 5,
+        Max = 100,
+        Default = 30,
+    },
+    Callback = function(Value)
+        Range = Value
+    end,
+})
+
+MainTab:Slider({
+    Title = "Attack Cooldown",
+    Desc = "Delay between attacks in seconds",
+    Icon = "timer",
+    IconThemed = true,
+    Value = {
+        Min = 0.05,
+        Max = 1,
+        Default = 0.2,
+    },
+    Step = 0.05,
+    Callback = function(Value)
+        AttackCooldown = Value
+    end,
+})
+
+local Mana = LocalPlayer:WaitForChild("PlayerStats"):WaitForChild("Mana")
+
+local mt = getrawmetatable(game)
+setreadonly(mt, false)
+
+local oldIndex = mt.__index
+mt.__index = newcclosure(function(self, key)
+    if self == Mana and key == "Value" then
+        return math.huge
+    end
+    return oldIndex(self, key)
+end)
+
+local oldNewIndex = mt.__newindex
+mt.__newindex = newcclosure(function(self, key, value)
+    if self == Mana and key == "Value" then
+        return
+    end
+    return oldNewIndex(self, key, value)
+end)
+
+setreadonly(mt, true)
+
+Mana.Changed:Connect(function()
+    Mana.Value = math.huge
+end)
+
+Mana.Value = math.huge
+
+MainTab:Toggle({
+    Title = "Infinite Mana",
+    Desc = "Locks mana to infinite",
+    Icon = "zap",
+    IconThemed = true,
+    Value = true,
+    Callback = function(Value)
+        if Value then
+            Mana.Value = math.huge
+        end
+    end,
+})
+
+local RollEnabled = true
+local RollCooldown = 0
+local LastRoll = 0
+
+local function doRoll(direction)
+    local char, hrp = getCharacter()
+    if not hrp then return end
+
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+
+    local moveDir = direction or humanoid.MoveDirection
+    if moveDir.Magnitude < 0.01 then
+        moveDir = hrp.CFrame.LookVector
+    end
+
+    local rollArgs = {
+        Origin = hrp.Position,
+        End = hrp.Position + moveDir * 40
+    }
+
+    Remotes.Roll:FireServer(rollArgs)
+
+    local rollForce = Instance.new("BodyVelocity")
+    rollForce.Name = "RollForce"
+    rollForce.Velocity = moveDir.Unit * 55
+    rollForce.MaxForce = Vector3.new(40000, 0, 40000)
+    rollForce.Parent = hrp
+    game.Debris:AddItem(rollForce, 0.3)
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if not RollEnabled then return end
+
+    if input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.ButtonB then
+        local now = tick()
+        if now - LastRoll < RollCooldown then return end
+        LastRoll = now
+
+        doRoll()
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if not RollEnabled then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    local cooldown = char:FindFirstChild("Cooldown")
+    if cooldown then
+        cooldown:Destroy()
+    end
+
+    local clientCooldown = char:FindFirstChild("ClientCooldown")
+    if clientCooldown then
+        clientCooldown:Destroy()
+    end
+
+    local freeRoll = char:FindFirstChild("FreeRoll")
+    if not freeRoll then
+        local fr = Instance.new("BoolValue")
+        fr.Name = "FreeRoll"
+        fr.Parent = char
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    task.wait(0.3)
+
+    local freeRoll = Instance.new("BoolValue")
+    freeRoll.Name = "FreeRoll"
+    freeRoll.Parent = char
+end)
+
+MainTab:Toggle({
+    Title = "Infinite Roll",
+    Desc = "Removes roll cooldown and enables spam",
+    Icon = "move",
+    IconThemed = true,
+    Value = true,
+    Callback = function(Value)
+        RollEnabled = Value
+    end,
+})
+
+local AntiFallEnabled = false
+
+local function setupAntiFallDamage()
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+
+    local lastVelocity = Vector3.zero
+
+    RunService.Heartbeat:Connect(function()
+        if not AntiFallEnabled then return end
+        if not LocalPlayer.Character then return end
+        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+
+        hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+        hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+
+        local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            if hrp.Velocity.Y < -50 then
+                hrp.AssemblyLinearVelocity = Vector3.new(hrp.Velocity.X, math.max(hrp.Velocity.Y, -50), hrp.Velocity.Z)
+            end
+            lastVelocity = hrp.Velocity
+        end
+    end)
+
+    humanoid.StateChanged:Connect(function(_, newState)
+        if not AntiFallEnabled then return end
+        if newState == Enum.HumanoidStateType.Landed then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.AssemblyLinearVelocity = Vector3.new(lastVelocity.X, 0, lastVelocity.Z)
+            end
+            task.delay(0, function()
+                if humanoid then
+                    humanoid:ChangeState(Enum.HumanoidStateType.Running)
+                end
+            end)
+        end
+    end)
+end
+
+setupAntiFallDamage()
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    local hum = char:WaitForChild("Humanoid", 5)
+    if hum then
+        hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+        hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+    end
+end)
+
+MainTab:Toggle({
+    Title = "Anti Fall Damage",
+    Desc = "Prevents fall damage and ragdoll",
+    Icon = "shield",
+    IconThemed = true,
+    Value = false,
+    Callback = function(Value)
+        AntiFallEnabled = Value
+    end,
+})
+
+local TpWalkEnabled = false
+local TpWalkSpeed = 16
+local TpWalkConnection = nil
+
+local function startTpWalk()
+    if TpWalkConnection then return end
+    TpWalkConnection = RunService.Heartbeat:Connect(function()
+        if not TpWalkEnabled then return end
+        local char, hrp = getCharacter()
+        if not hrp then return end
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return end
+        local moveDir = humanoid.MoveDirection
+        if moveDir.Magnitude > 0.01 then
+            hrp.CFrame = hrp.CFrame + moveDir.Unit * TpWalkSpeed * 0.05
+        end
+    end)
+end
+
+local function stopTpWalk()
+    if TpWalkConnection then
+        TpWalkConnection:Disconnect()
+        TpWalkConnection = nil
+    end
+end
+
+PlayerTab:Toggle({
+    Title = "TpWalk",
+    Desc = "Teleports player while moving",
+    Icon = "footprints",
+    IconThemed = true,
+    Value = false,
+    Callback = function(Value)
+        TpWalkEnabled = Value
+        if Value then
+            startTpWalk()
+        else
+            stopTpWalk()
+        end
+    end,
+})
+
+PlayerTab:Slider({
+    Title = "TpWalk Speed",
+    Desc = "Speed of teleport walk",
+    Icon = "gauge",
+    IconThemed = true,
+    Value = {
+        Min = 5,
+        Max = 100,
+        Default = 16,
+    },
+    Callback = function(Value)
+        TpWalkSpeed = Value
+    end,
+})
+
+local NoFogEnabled = false
+local OriginalFogStart = Lighting.FogStart
+local OriginalFogEnd = Lighting.FogEnd
+local OriginalFogColor = Lighting.FogColor
+
+local function updateNoFog()
+    if NoFogEnabled then
+        Lighting.FogStart = 0
+        Lighting.FogEnd = 100000
+        Lighting.FogColor = Color3.new(1, 1, 1)
+    else
+        Lighting.FogStart = OriginalFogStart
+        Lighting.FogEnd = OriginalFogEnd
+        Lighting.FogColor = OriginalFogColor
+    end
+end
+
+Lighting.Changed:Connect(function(prop)
+    if NoFogEnabled and (prop == "FogStart" or prop == "FogEnd" or prop == "FogColor") then
+        updateNoFog()
+    end
+end)
+
+PlayerTab:Toggle({
+    Title = "No Fog",
+    Desc = "Removes fog from the game",
+    Icon = "cloud-off",
+    IconThemed = true,
+    Value = false,
+    Callback = function(Value)
+        NoFogEnabled = Value
+        updateNoFog()
+    end,
+})
+
+local FullBrightEnabled = false
+local OriginalAmbient = Lighting.Ambient
+local OriginalBrightness = Lighting.Brightness
+local OriginalClockTime = Lighting.ClockTime
+local OriginalGlobalShadows = Lighting.GlobalShadows
+local OriginalOutdoorAmbient = Lighting.OutdoorAmbient
+
+local function updateFullBright()
+    if FullBrightEnabled then
+        Lighting.Ambient = Color3.new(1, 1, 1)
+        Lighting.Brightness = 10
+        Lighting.ClockTime = 12
+        Lighting.GlobalShadows = false
+        Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
+    else
+        Lighting.Ambient = OriginalAmbient
+        Lighting.Brightness = OriginalBrightness
+        Lighting.ClockTime = OriginalClockTime
+        Lighting.GlobalShadows = OriginalGlobalShadows
+        Lighting.OutdoorAmbient = OriginalOutdoorAmbient
+    end
+end
+
+Lighting.Changed:Connect(function(prop)
+    if FullBrightEnabled and (prop == "Ambient" or prop == "Brightness" or prop == "ClockTime" or prop == "GlobalShadows" or prop == "OutdoorAmbient") then
+        updateFullBright()
+    end
+end)
+
+PlayerTab:Toggle({
+    Title = "Full Bright",
+    Desc = "Maximizes lighting and removes shadows",
+    Icon = "sun",
+    IconThemed = true,
+    Value = false,
+    Callback = function(Value)
+        FullBrightEnabled = Value
+        updateFullBright()
+    end,
+})
+
+local EspPlayersEnabled = false
+local EspEnemiesEnabled = false
+
+local PlayerEspData = {}
+local EnemyEspData = {}
+
+local function createHighlight(parent, color)
+    local hl = Instance.new("Highlight")
+    hl.Name = "RariedadeESP"
+    hl.FillColor = color
+    hl.OutlineColor = color
+    hl.FillTransparency = 0.5
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = parent
+    return hl
+end
+
+local function createBillboard(parent, text, color)
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "RariedadeESP"
+    bb.Size = UDim2.new(0, 100, 0, 20)
+    bb.StudsOffset = Vector3.new(0, 3, 0)
+    bb.AlwaysOnTop = true
+    bb.MaxDistance = 500
+    bb.Parent = parent
+
+    local label = Instance.new("TextLabel")
+    label.Name = "ESPLabel"
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = color
+    label.TextStrokeTransparency = 0
+    label.TextStrokeColor3 = Color3.new(0, 0, 0)
+    label.TextScaled = false
+    label.TextSize = 12
+    label.Font = Enum.Font.GothamBold
+    label.Parent = bb
+
+    return bb
+end
+
+local function clearEsp(dataTable)
+    for _, entry in pairs(dataTable) do
+        if entry.highlight and entry.highlight.Parent then
+            entry.highlight:Destroy()
+        end
+        if entry.billboard and entry.billboard.Parent then
+            entry.billboard:Destroy()
+        end
+    end
+    table.clear(dataTable)
+end
+
+local function removeEsp(dataTable, key)
+    local entry = dataTable[key]
+    if entry then
+        if entry.highlight and entry.highlight.Parent then
+            entry.highlight:Destroy()
+        end
+        if entry.billboard and entry.billboard.Parent then
+            entry.billboard:Destroy()
+        end
+        dataTable[key] = nil
+    end
+end
+
+local function updatePlayerEsp()
+    if not EspPlayersEnabled then
+        clearEsp(PlayerEspData)
+        return
+    end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+
+        local char = player.Character
+        if not char then
+            removeEsp(PlayerEspData, player)
+            continue
+        end
+
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            removeEsp(PlayerEspData, player)
+            continue
+        end
+
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health <= 0 then
+            removeEsp(PlayerEspData, player)
+            continue
+        end
+
+        local entry = PlayerEspData[player]
+        if not entry then
+            entry = {}
+            PlayerEspData[player] = entry
+        end
+
+        if not entry.highlight or not entry.highlight.Parent then
+            entry.highlight = createHighlight(char, Color3.new(0, 1, 0))
+        end
+
+        local displayName = player.DisplayName or player.Name
+        if not entry.billboard or not entry.billboard.Parent then
+            entry.billboard = createBillboard(hrp, displayName, Color3.new(0, 1, 0))
+        else
+            entry.billboard.ESPLabel.Text = displayName
+        end
+    end
+
+    for player in pairs(PlayerEspData) do
+        if not table.find(Players:GetPlayers(), player) then
+            removeEsp(PlayerEspData, player)
+        end
+    end
+end
+
+local function updateEnemyEsp()
+    if not EspEnemiesEnabled then
+        clearEsp(EnemyEspData)
+        return
+    end
+
+    updateMobCache()
+
+    local activeMobs = {}
+    for _, mob in ipairs(cachedMobs) do
+        if mob.Parent then
+            activeMobs[mob] = true
+
+            local hrp = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Torso") or mob:FindFirstChild("UpperTorso")
+            if not hrp then
+                removeEsp(EnemyEspData, mob)
+                continue
+            end
+
+            local entry = EnemyEspData[mob]
+            if not entry then
+                entry = {}
+                EnemyEspData[mob] = entry
+            end
+
+            if not entry.highlight or not entry.highlight.Parent then
+                entry.highlight = createHighlight(mob, Color3.new(1, 0, 0))
+            end
+
+            local mobName = mob.Name
+            if not entry.billboard or not entry.billboard.Parent then
+                entry.billboard = createBillboard(hrp, mobName, Color3.new(1, 0, 0))
+            else
+                entry.billboard.ESPLabel.Text = mobName
+            end
+        end
+    end
+
+    for mob in pairs(EnemyEspData) do
+        if not activeMobs[mob] or not mob.Parent then
+            removeEsp(EnemyEspData, mob)
+        end
+    end
+end
+
+RunService.Heartbeat:Connect(function()
+    updatePlayerEsp()
+    updateEnemyEsp()
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    removeEsp(PlayerEspData, player)
+end)
+
+VisualTab:Toggle({
+    Title = "ESP Players",
+    Desc = "Shows green outline and name above all players",
+    Icon = "users",
+    IconThemed = true,
+    Value = false,
+    Callback = function(Value)
+        EspPlayersEnabled = Value
+        if not Value then
+            clearEsp(PlayerEspData)
+        end
+    end,
+})
+
+VisualTab:Toggle({
+    Title = "ESP Enemies",
+    Desc = "Shows red outline and name above all mobs",
+    Icon = "skull",
+    IconThemed = true,
+    Value = false,
+    Callback = function(Value)
+        EspEnemiesEnabled = Value
+        if not Value then
+            clearEsp(EnemyEspData)
+        end
+    end,
+})
